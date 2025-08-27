@@ -2,51 +2,60 @@ import streamlit as st
 import numpy as np
 import gdown
 import os
-from tensorflow.keras.models import load_model
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Conv2D, MaxPooling2D, Flatten, Dense, Dropout
 from tensorflow.keras.preprocessing import image
 from PIL import Image, ImageOps
 
 # -------------------------------
-# Download model dari Google Drive
+# Download model weights dari Google Drive
 # -------------------------------
-MODEL_PATH = "best.h5"
-GOOGLE_DRIVE_ID = "1BP4E6jOTaFv_-b0bouAhGuYESxGHwHDB"  # ID dari link yang kamu kasih
+WEIGHTS_PATH = "best.h5"
+GOOGLE_DRIVE_ID = "1BP4E6jOTaFv_-b0bouAhGuYESxGHwHDB"
 
-if not os.path.exists(MODEL_PATH):
-    with st.spinner("🔄 Mengunduh model dari Google Drive..."):
+if not os.path.exists(WEIGHTS_PATH):
+    with st.spinner("🔄 Mengunduh weight model dari Google Drive..."):
         url = f"https://drive.google.com/uc?id={GOOGLE_DRIVE_ID}"
-        gdown.download(url, MODEL_PATH, quiet=False)
+        gdown.download(url, WEIGHTS_PATH, quiet=False)
 
-if not os.path.exists(MODEL_PATH):
+if not os.path.exists(WEIGHTS_PATH):
     st.error("❌ File best.h5 tidak ditemukan. Cek link Google Drive!")
     st.stop()
 
 # -------------------------------
-# Load Model
+# Definisikan ulang arsitektur model
+# (Sesuaikan dengan arsitektur saat training)
+# -------------------------------
+def build_model(input_shape=(48,48,3), num_classes=7):
+    model = Sequential([
+        Conv2D(32, (3,3), activation="relu", input_shape=input_shape),
+        MaxPooling2D(2,2),
+        Conv2D(64, (3,3), activation="relu"),
+        MaxPooling2D(2,2),
+        Conv2D(128, (3,3), activation="relu"),
+        MaxPooling2D(2,2),
+        Flatten(),
+        Dense(128, activation="relu"),
+        Dropout(0.5),
+        Dense(num_classes, activation="softmax")
+    ])
+    return model
+
+# -------------------------------
+# Load model + weight
 # -------------------------------
 @st.cache_resource
 def load_my_model():
-    try:
-        model = load_model(MODEL_PATH, compile=False)
-        return model
-    except Exception as e:
-        st.error(f"❌ Gagal load model: {e}")
-        st.stop()
+    model = build_model()
+    model.load_weights(WEIGHTS_PATH)   # <-- load weight, bukan load_model
+    return model
 
 model = load_my_model()
 
-# Ambil input shape & jumlah kelas dari model
-input_shape = model.input_shape[1:3]   # (height, width)
-num_classes = model.output_shape[-1]
-
-# Default class_names untuk ekspresi wajah
-default_classes = ["Marah", "Jijik", "Takut", "Bahagia", "Sedih", "Terkejut", "Netral"]
-
-# Sesuaikan panjang class_names dengan output model
-if num_classes <= len(default_classes):
-    class_names = default_classes[:num_classes]
-else:
-    class_names = [f"Kelas {i}" for i in range(num_classes)]
+# -------------------------------
+# Daftar Label Ekspresi
+# -------------------------------
+class_names = ["Marah", "Jijik", "Takut", "Bahagia", "Sedih", "Terkejut", "Netral"]
 
 # -------------------------------
 # Aplikasi Streamlit
@@ -54,35 +63,25 @@ else:
 st.title("📷 Deteksi Ekspresi Wajah dengan Kamera")
 st.write("Gunakan kamera untuk mengenali ekspresi wajah secara langsung.")
 
-# Ambil gambar dari kamera
 img_file = st.camera_input("Ambil foto dengan kamera")
 
 if img_file is not None:
-    # Buka gambar
     img = Image.open(img_file).convert("RGB")
     st.image(img, caption="Gambar dari Kamera", use_container_width=True)
 
-    # -------------------------------
-    # Preprocessing sesuai input model
-    # -------------------------------
-    img_resized = ImageOps.fit(img, input_shape, Image.ANTIALIAS)
+    # Preprocess
+    target_size = (48, 48)
+    img_resized = ImageOps.fit(img, target_size, Image.ANTIALIAS)
     img_array = image.img_to_array(img_resized)
-    img_array = np.expand_dims(img_array, axis=0)
-    img_array = img_array / 255.0
+    img_array = np.expand_dims(img_array, axis=0) / 255.0
 
-    # -------------------------------
     # Prediksi
-    # -------------------------------
     preds = model.predict(img_array)
     predicted_class = np.argmax(preds, axis=1)[0]
     confidence = np.max(preds)
 
-    # -------------------------------
     # Hasil
-    # -------------------------------
     st.subheader("Hasil Prediksi")
-    st.write(f"📌 Ekspresi Terdeteksi: **{class_names[predicted_class]}**")
+    st.write(f"📌 Ekspresi: **{class_names[predicted_class]}**")
     st.write(f"🔎 Probabilitas: {confidence:.2f}")
-
-    # Tampilkan semua probabilitas
     st.bar_chart(preds[0])
