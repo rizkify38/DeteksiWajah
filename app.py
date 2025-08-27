@@ -1,16 +1,28 @@
 import streamlit as st
 import numpy as np
-import tensorflow as tf
+import gdown
+import os
 from tensorflow.keras.models import load_model
 from tensorflow.keras.preprocessing import image
 from PIL import Image, ImageOps
+
+# -------------------------------
+# Download model dari Google Drive
+# -------------------------------
+MODEL_PATH = "best.h5"
+GOOGLE_DRIVE_ID = "1BP4E6jOTaFv_-b0bouAhGuYESxGHwHDB"  # <<== Ganti dengan ID file Google Drive
+
+if not os.path.exists(MODEL_PATH):
+    with st.spinner("🔄 Mengunduh model dari Google Drive..."):
+        url = f"https://drive.google.com/uc?id={GOOGLE_DRIVE_ID}"
+        gdown.download(url, MODEL_PATH, quiet=False)
 
 # -------------------------------
 # Load Model
 # -------------------------------
 @st.cache_resource
 def load_my_model():
-    model = load_model("best.h5")
+    model = load_model(MODEL_PATH)
     return model
 
 model = load_my_model()
@@ -43,11 +55,10 @@ if img_file is not None:
     st.image(img, caption="Gambar dari Kamera", use_container_width=True)
 
     # -------------------------------
-    # Preprocessing (ubah sesuai input model)
+    # Preprocessing
     # -------------------------------
-    # Asumsi model dilatih dengan ukuran 48x48 atau 224x224
-    # Kalau error, ubah sesuai input_shape modelmu
-    target_size = (48, 48)  # ubah ke (224,224) kalau model pakai itu
+    # Sesuaikan dengan input model (cek dengan model.input_shape jika perlu)
+    target_size = (48, 48)  # ubah ke (224,224) kalau model kamu dilatih di 224x224
     img_resized = ImageOps.fit(img, target_size, Image.ANTIALIAS)
 
     img_array = image.img_to_array(img_resized)
@@ -70,3 +81,4 @@ if img_file is not None:
 
     # Tampilkan semua probabilitas
     st.bar_chart(preds[0])
+
