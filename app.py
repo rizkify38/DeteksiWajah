@@ -12,24 +12,21 @@ st.set_page_config(page_title="Deteksi Ekspresi Wajah", page_icon="🎭", layout
 # Konfigurasi & Utilities
 # =========================
 
-# Urutan label emosi (sesuaikan dengan urutan output model Anda!)
-# Jika urutan model berbeda, ubah list ini agar sinkron.
-EMOTION_LABELS = ["Kemarahan", "Netral", "Normal", "Ketakutan", "Kebahagiaan", "Kesedihan", "Kejutan"]
+# Label emosi sesuai urutan output model Anda
+# ⚠️ Silakan sesuaikan urutannya dengan model `best.h5`
+EMOTION_LABELS = ["Marah", "Netral", "Jijik", "Takut", "Bahagia", "Sedih", "Kejutan"]
 
 @st.cache_resource(show_spinner=False)
-def load_emotion_model(path: str = "emotion_model_pretrained.h5"):
-    model = load_model(path)
-    return model
+def load_emotion_model(path: str = "best.h5"):
+    return load_model(path)
 
 @st.cache_resource(show_spinner=False)
 def load_face_detector():
-    # Haarcascade bawaan OpenCV
-    cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
-    return cascade
+    return cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
 
 def preprocess_face(gray_face: np.ndarray) -> np.ndarray:
     """
-    Preproses ROI wajah untuk model FER 48x48 grayscale [0..1].
+    Preproses ROI wajah untuk model: grayscale 48x48, normalisasi 0-1
     Output shape: (1, 48, 48, 1)
     """
     face = cv2.resize(gray_face, (48, 48))
@@ -41,7 +38,7 @@ def preprocess_face(gray_face: np.ndarray) -> np.ndarray:
 # UI
 # =========================
 st.title("🎭 Deteksi Ekspresi Wajah — Real-time")
-st.caption("Klasifikasi: Kemarahan, Netral, Jijik, Ketakutan, Kebahagiaan, Kesedihan, Kejutan")
+st.caption("Menggunakan model: `best.h5`")
 
 col1, col2 = st.columns([2, 1], gap="large")
 
@@ -73,7 +70,7 @@ class EmotionTransformer(VideoTransformerBase):
 
     def predict_emotion(self, gray_face: np.ndarray):
         x = preprocess_face(gray_face)
-        preds = self.model.predict(x, verbose=0)[0]  # shape: (7,)
+        preds = self.model.predict(x, verbose=0)[0]  # shape: (n_class,)
         idx = int(np.argmax(preds))
         label = EMOTION_LABELS[idx] if idx < len(EMOTION_LABELS) else f"Class {idx}"
         conf = float(np.max(preds))
@@ -81,11 +78,8 @@ class EmotionTransformer(VideoTransformerBase):
 
     def recv(self, frame: av.VideoFrame) -> av.VideoFrame:
         img = frame.to_ndarray(format="bgr24")
-
-        # Konversi ke grayscale untuk deteksi & inference
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-        # Deteksi wajah
         faces = self.detector.detectMultiScale(
             gray,
             scaleFactor=self.scaleFactor,
@@ -93,8 +87,7 @@ class EmotionTransformer(VideoTransformerBase):
             minSize=(self.min_size, self.min_size)
         )
 
-        best_probs = None  # simpan probabilitas tertinggi dari salah satu wajah (mis. wajah terbesar)
-        # Urutkan wajah berdasarkan area (besar ke kecil) agar label utama lebih stabil
+        best_probs = None
         faces = sorted(list(faces), key=lambda b: b[2] * b[3], reverse=True)
 
         for (x, y, w, h) in faces:
@@ -104,7 +97,6 @@ class EmotionTransformer(VideoTransformerBase):
             if best_probs is None:
                 best_probs = probs
 
-            # Gambar bounding box + label
             if self.draw_box:
                 cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 2)
 
@@ -114,9 +106,7 @@ class EmotionTransformer(VideoTransformerBase):
                 cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2, cv2.LINE_AA
             )
 
-        # Simpan probabilitas untuk panel samping
         self.last_probs = best_probs
-
         return av.VideoFrame.from_ndarray(img, format="bgr24")
 
 # =========================
@@ -143,19 +133,18 @@ with col2:
     st.subheader("Probabilitas (wajah utama)")
     if ctx and ctx.video_transformer and ctx.video_transformer.last_probs is not None:
         probs = ctx.video_transformer.last_probs
-        # Buat tabel sederhana
         for label, p in zip(EMOTION_LABELS, probs):
             st.write(f"- **{label}**: {p:.3f}")
     else:
         st.write("Belum ada data. Mulai kamera untuk melihat probabilitas.")
 
 st.markdown("---")
-with st.expander("ℹ️ Catatan & Tips"):
+with st.expander("ℹ️ Catatan"):
     st.markdown(
         """
-- Pastikan **`emotion_model.h5`** kompatibel dengan preproses: *grayscale 48×48, skala 0–1*.  
-- Jika hasil label tidak tepat, **sesuaikan urutan `EMOTION_LABELS`** agar sama dengan urutan output layer model Anda.  
-- Jika kamera tidak menyala di browser, periksa izin kamera (HTTPS/localhost) dan coba ganti browser.  
-- Parameter *Haar Cascade* bisa diubah lewat panel **Pengaturan** jika deteksi wajah kurang stabil.
+- Pastikan file **`best.h5`** berada di direktori yang sama dengan `app.py`.  
+- Urutan `EMOTION_LABELS` harus sesuai dengan urutan output model Anda.  
+- Jika kamera tidak menyala, cek izin kamera di browser (harus HTTPS/localhost).  
         """
     )
+
