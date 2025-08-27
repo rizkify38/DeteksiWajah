@@ -10,20 +10,28 @@ from PIL import Image, ImageOps
 # Download model dari Google Drive
 # -------------------------------
 MODEL_PATH = "best.h5"
-GOOGLE_DRIVE_ID = "PASTE_ID_MODEL_KAMU"  # Ganti dengan ID Google Drive
+GOOGLE_DRIVE_ID = "1BP4E6jOTaFv_-b0bouAhGuYESxGHwHDB"  # ID dari link yang kamu kasih
 
 if not os.path.exists(MODEL_PATH):
     with st.spinner("🔄 Mengunduh model dari Google Drive..."):
         url = f"https://drive.google.com/uc?id={GOOGLE_DRIVE_ID}"
         gdown.download(url, MODEL_PATH, quiet=False)
 
+if not os.path.exists(MODEL_PATH):
+    st.error("❌ File best.h5 tidak ditemukan. Cek link Google Drive!")
+    st.stop()
+
 # -------------------------------
 # Load Model
 # -------------------------------
 @st.cache_resource
 def load_my_model():
-    model = load_model(MODEL_PATH)
-    return model
+    try:
+        model = load_model(MODEL_PATH, compile=False)
+        return model
+    except Exception as e:
+        st.error(f"❌ Gagal load model: {e}")
+        st.stop()
 
 model = load_my_model()
 
@@ -31,8 +39,10 @@ model = load_my_model()
 input_shape = model.input_shape[1:3]   # (height, width)
 num_classes = model.output_shape[-1]
 
-# Default class_names jika jumlah kelas = 7
+# Default class_names untuk ekspresi wajah
 default_classes = ["Marah", "Jijik", "Takut", "Bahagia", "Sedih", "Terkejut", "Netral"]
+
+# Sesuaikan panjang class_names dengan output model
 if num_classes <= len(default_classes):
     class_names = default_classes[:num_classes]
 else:
