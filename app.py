@@ -17,7 +17,7 @@ st.set_page_config(page_title="Deteksi Ekspresi Wajah", page_icon="🎭", layout
 EMOTION_LABELS = ["Kemarahan", "Netral", "Jijik", "Ketakutan", "Kebahagiaan", "Kesedihan", "Kejutan"]
 
 @st.cache_resource(show_spinner=False)
-def load_emotion_model(path: str = "emotion_model.h5"):
+def load_emotion_model(path: str = "best.h5"):
     model = load_model(path)
     return model
 
