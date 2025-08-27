@@ -14,7 +14,7 @@ st.set_page_config(page_title="Deteksi Ekspresi Wajah", page_icon="🎭", layout
 
 # Label emosi sesuai urutan output model Anda
 # ⚠️ Pastikan jumlah label sesuai dengan output dari model best.h5
-EMOTION_LABELS = ["Sedih", "Netral", "Bahagia"]
+EMOTION_LABELS = ['Angry','Disgust','Fear', 'Happy','Neutral', 'Sad','Surprise']
 
 @st.cache_resource(show_spinner=False)
 def load_emotion_model(path: str = "emotion_model.h5"):
