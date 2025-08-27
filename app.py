@@ -1,67 +1,161 @@
+# app.py
+import av
 import cv2
-import streamlit as st
-import pickle
 import numpy as np
+import streamlit as st
+from streamlit_webrtc import webrtc_streamer, VideoTransformerBase, WebRtcMode
+from tensorflow.keras.models import load_model
 
-st.set_page_config(page_title="Deteksi Wajah", layout="wide")
-st.title("📷 Deteksi Wajah + Prediksi dengan Model (.pkl)")
+st.set_page_config(page_title="Deteksi Ekspresi Wajah", page_icon="🎭", layout="wide")
 
-# ===============================
-# 1. Load Model dari file .pkl
-# ===============================
-@st.cache_resource
-def load_model():
-    model_path = "final_data.pkl"
-    with open(model_path, "rb") as f:
-        model = pickle.load(f)
+# =========================
+# Konfigurasi & Utilities
+# =========================
+
+# Urutan label emosi (sesuaikan dengan urutan output model Anda!)
+# Jika urutan model berbeda, ubah list ini agar sinkron.
+EMOTION_LABELS = ["Kemarahan", "Netral", "Jijik", "Ketakutan", "Kebahagiaan", "Kesedihan", "Kejutan"]
+
+@st.cache_resource(show_spinner=False)
+def load_emotion_model(path: str = "emotion_model.h5"):
+    model = load_model(path)
     return model
 
-model = load_model()
-st.success("✅ Model berhasil dimuat dari `final_data.pkl`")
+@st.cache_resource(show_spinner=False)
+def load_face_detector():
+    # Haarcascade bawaan OpenCV
+    cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+    return cascade
 
-# ===============================
-# 2. Load Haar Cascade
-# ===============================
-face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+def preprocess_face(gray_face: np.ndarray) -> np.ndarray:
+    """
+    Preproses ROI wajah untuk model FER 48x48 grayscale [0..1].
+    Output shape: (1, 48, 48, 1)
+    """
+    face = cv2.resize(gray_face, (48, 48))
+    face = face.astype("float32") / 255.0
+    face = np.expand_dims(face, axis=(0, -1))
+    return face
 
-# ===============================
-# 3. Stream Kamera
-# ===============================
-frame_window = st.image([])
-run = st.checkbox("Aktifkan Kamera")
+# =========================
+# UI
+# =========================
+st.title("🎭 Deteksi Ekspresi Wajah — Real-time")
+st.caption("Klasifikasi: Kemarahan, Netral, Jijik, Ketakutan, Kebahagiaan, Kesedihan, Kejutan")
 
-camera = cv2.VideoCapture(0)
+col1, col2 = st.columns([2, 1], gap="large")
 
-while run:
-    ret, frame = camera.read()
-    if not ret:
-        st.error("❌ Gagal membuka kamera")
-        break
+with col2:
+    st.subheader("Pengaturan")
+    draw_box = st.toggle("Tampilkan Bounding Box", value=True)
+    show_conf = st.toggle("Tampilkan Confidence", value=True)
+    min_face = st.slider("Ukuran minimum wajah (px)", 60, 200, 90, 10)
+    scaleFactor = st.slider("Haar scaleFactor", 1.05, 1.50, 1.20, 0.01)
+    minNeighbors = st.slider("Haar minNeighbors", 3, 10, 5, 1)
 
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    faces = face_cascade.detectMultiScale(gray, 1.3, 5)
+with col1:
+    st.subheader("Kamera")
+    st.info("Klik **Start** untuk mulai streaming video.")
 
-    for (x, y, w, h) in faces:
-        # --- Crop wajah ---
-        face_roi = gray[y:y+h, x:x+w]
+# =========================
+# Video Transformer
+# =========================
+class EmotionTransformer(VideoTransformerBase):
+    def __init__(self, draw_box=True, show_conf=True, min_size=90, scaleFactor=1.2, minNeighbors=5):
+        self.model = load_emotion_model()
+        self.detector = load_face_detector()
+        self.draw_box = draw_box
+        self.show_conf = show_conf
+        self.min_size = min_size
+        self.scaleFactor = scaleFactor
+        self.minNeighbors = minNeighbors
+        self.last_probs = None  # untuk panel probabilitas
 
-        # --- Preprocessing sesuai model ---
-        try:
-            face_resized = cv2.resize(face_roi, (64, 64))   # ubah sesuai ukuran input model
-            face_flatten = face_resized.flatten().reshape(1, -1)
+    def predict_emotion(self, gray_face: np.ndarray):
+        x = preprocess_face(gray_face)
+        preds = self.model.predict(x, verbose=0)[0]  # shape: (7,)
+        idx = int(np.argmax(preds))
+        label = EMOTION_LABELS[idx] if idx < len(EMOTION_LABELS) else f"Class {idx}"
+        conf = float(np.max(preds))
+        return label, conf, preds
 
-            # --- Prediksi ---
-            pred = model.predict(face_flatten)
-            label = str(pred[0])
-        except Exception as e:
-            label = f"Error: {e}"
+    def recv(self, frame: av.VideoFrame) -> av.VideoFrame:
+        img = frame.to_ndarray(format="bgr24")
 
-        # --- Gambar kotak + label ---
-        cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
-        cv2.putText(frame, label, (x, y-10),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+        # Konversi ke grayscale untuk deteksi & inference
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    frame_window.image(frame)
+        # Deteksi wajah
+        faces = self.detector.detectMultiScale(
+            gray,
+            scaleFactor=self.scaleFactor,
+            minNeighbors=self.minNeighbors,
+            minSize=(self.min_size, self.min_size)
+        )
 
-camera.release()
+        best_probs = None  # simpan probabilitas tertinggi dari salah satu wajah (mis. wajah terbesar)
+        # Urutkan wajah berdasarkan area (besar ke kecil) agar label utama lebih stabil
+        faces = sorted(list(faces), key=lambda b: b[2] * b[3], reverse=True)
+
+        for (x, y, w, h) in faces:
+            roi_gray = gray[y:y+h, x:x+w]
+            label, conf, probs = self.predict_emotion(roi_gray)
+
+            if best_probs is None:
+                best_probs = probs
+
+            # Gambar bounding box + label
+            if self.draw_box:
+                cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 2)
+
+            text = label if not self.show_conf else f"{label} ({conf:.2f})"
+            cv2.putText(
+                img, text, (x, max(0, y - 10)),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2, cv2.LINE_AA
+            )
+
+        # Simpan probabilitas untuk panel samping
+        self.last_probs = best_probs
+
+        return av.VideoFrame.from_ndarray(img, format="bgr24")
+
+# =========================
+# Jalankan WebRTC
+# =========================
+ctx = webrtc_streamer(
+    key="emotion-rtc",
+    mode=WebRtcMode.SENDRECV,
+    media_stream_constraints={"video": True, "audio": False},
+    video_transformer_factory=lambda: EmotionTransformer(
+        draw_box=draw_box,
+        show_conf=show_conf,
+        min_size=min_face,
+        scaleFactor=scaleFactor,
+        minNeighbors=minNeighbors,
+    ),
+    async_processing=True,
+)
+
+# =========================
+# Panel Probabilitas
+# =========================
+with col2:
+    st.subheader("Probabilitas (wajah utama)")
+    if ctx and ctx.video_transformer and ctx.video_transformer.last_probs is not None:
+        probs = ctx.video_transformer.last_probs
+        # Buat tabel sederhana
+        for label, p in zip(EMOTION_LABELS, probs):
+            st.write(f"- **{label}**: {p:.3f}")
+    else:
+        st.write("Belum ada data. Mulai kamera untuk melihat probabilitas.")
+
+st.markdown("---")
+with st.expander("ℹ️ Catatan & Tips"):
+    st.markdown(
+        """
+- Pastikan **`emotion_model.h5`** kompatibel dengan preproses: *grayscale 48×48, skala 0–1*.  
+- Jika hasil label tidak tepat, **sesuaikan urutan `EMOTION_LABELS`** agar sama dengan urutan output layer model Anda.  
+- Jika kamera tidak menyala di browser, periksa izin kamera (HTTPS/localhost) dan coba ganti browser.  
+- Parameter *Haar Cascade* bisa diubah lewat panel **Pengaturan** jika deteksi wajah kurang stabil.
+        """
+    )
