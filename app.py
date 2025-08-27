@@ -10,7 +10,7 @@ from PIL import Image, ImageOps
 # Download model dari Google Drive
 # -------------------------------
 MODEL_PATH = "best.h5"
-GOOGLE_DRIVE_ID = "1BP4E6jOTaFv_-b0bouAhGuYESxGHwHDB"  # <<== Ganti dengan ID file Google Drive
+GOOGLE_DRIVE_ID = "PASTE_ID_MODEL_KAMU"  # Ganti dengan ID Google Drive
 
 if not os.path.exists(MODEL_PATH):
     with st.spinner("🔄 Mengunduh model dari Google Drive..."):
@@ -27,18 +27,16 @@ def load_my_model():
 
 model = load_my_model()
 
-# -------------------------------
-# Daftar Label Ekspresi
-# -------------------------------
-class_names = [
-    "Marah",       # Angry
-    "Jijik",       # Disgust
-    "Takut",       # Fear
-    "Bahagia",     # Happy
-    "Sedih",       # Sad
-    "Terkejut",    # Surprise
-    "Netral"       # Neutral
-]
+# Ambil input shape & jumlah kelas dari model
+input_shape = model.input_shape[1:3]   # (height, width)
+num_classes = model.output_shape[-1]
+
+# Default class_names jika jumlah kelas = 7
+default_classes = ["Marah", "Jijik", "Takut", "Bahagia", "Sedih", "Terkejut", "Netral"]
+if num_classes <= len(default_classes):
+    class_names = default_classes[:num_classes]
+else:
+    class_names = [f"Kelas {i}" for i in range(num_classes)]
 
 # -------------------------------
 # Aplikasi Streamlit
@@ -55,12 +53,9 @@ if img_file is not None:
     st.image(img, caption="Gambar dari Kamera", use_container_width=True)
 
     # -------------------------------
-    # Preprocessing
+    # Preprocessing sesuai input model
     # -------------------------------
-    # Sesuaikan dengan input model (cek dengan model.input_shape jika perlu)
-    target_size = (48, 48)  # ubah ke (224,224) kalau model kamu dilatih di 224x224
-    img_resized = ImageOps.fit(img, target_size, Image.ANTIALIAS)
-
+    img_resized = ImageOps.fit(img, input_shape, Image.ANTIALIAS)
     img_array = image.img_to_array(img_resized)
     img_array = np.expand_dims(img_array, axis=0)
     img_array = img_array / 255.0
@@ -81,4 +76,3 @@ if img_file is not None:
 
     # Tampilkan semua probabilitas
     st.bar_chart(preds[0])
-
