@@ -1,4 +1,6 @@
 streamlit
-opencv-python
+streamlit-webrtc
+opencv-python-headless
+tensorflow  # atau versi yang cocok dengan model Anda
 numpy
-scikit-learn
+av
